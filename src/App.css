@@ -1,0 +1,648 @@
+@import url("/webfonts/stylesheet.css");
+
+:root {
+  --app-shell-solid: #02050b;
+  --app-shell-glow:
+    radial-gradient(circle at top left, rgba(27, 69, 216, 0.34), transparent 28%),
+    linear-gradient(180deg, #060b14 0%, #02050b 100%);
+  color: #f4f7ff;
+  background-color: var(--app-shell-solid);
+  background-image: var(--app-shell-glow);
+  color-scheme: dark;
+  font-family: "NN Nouvelle Grotesk STD", sans-serif;
+  font-synthesis: none;
+  font-weight: 400;
+  line-height: 1.45;
+  text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  --corning-blue: #1b45d8;
+  --corning-cyan: #43b8fb;
+  --corning-blue-soft: rgba(27, 69, 216, 0.22);
+  --panel-border: rgba(255, 255, 255, 0.14);
+  --panel-bg: rgba(3, 8, 20, 0.66);
+  --panel-strong: rgba(3, 8, 20, 0.8);
+  --panel-blur: blur(24px);
+  --copy-muted: rgba(238, 243, 255, 0.72);
+  --copy-dim: rgba(214, 223, 247, 0.56);
+  --hotspot-callout-scale: 1.14;
+  --hotspot-backdrop-wash: rgba(27, 69, 216, 0.2);
+  --hotspot-backdrop-edge: rgba(7, 20, 59, 0.34);
+  --hotspot-backdrop-highlight: rgba(67, 184, 251, 0.3);
+  --hotspot-backdrop-blur: blur(24px);
+  --hotspot-callout-block-fill: rgba(32, 72, 191, 0.86);
+  --hotspot-callout-block-border: rgba(67, 184, 251, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background-color: var(--app-shell-solid);
+}
+
+body {
+  overflow: hidden;
+  background-image: var(--app-shell-glow);
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  background: none;
+  color: inherit;
+}
+
+img,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+.experience-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--app-shell-solid);
+  background-image: var(--app-shell-glow);
+}
+
+.experience-shell--cursor-hidden,
+.experience-shell--cursor-hidden * {
+  cursor: none;
+}
+
+.experience-shell__flash {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  opacity: 0;
+  pointer-events: none;
+  background: #fff;
+  will-change: opacity;
+}
+
+.experience-shell__flash--cover {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 1000ms linear;
+}
+
+.experience-shell__flash--reveal {
+  opacity: 0;
+  pointer-events: auto;
+  transition: opacity 2000ms ease-out;
+}
+
+.experience-reference-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.58;
+  pointer-events: none;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.stage__still,
+.stage__video {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100vw, calc(100vh * 16 / 9));
+  height: max(100vh, calc(100vw * 9 / 16));
+  max-width: none;
+  max-height: none;
+  object-fit: fill;
+  transform: translate3d(-50%, -50%, 0);
+  backface-visibility: hidden;
+  transition: transform 260ms ease;
+  will-change: transform;
+}
+
+.stage__still-slot {
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  will-change: opacity, transform;
+}
+
+.stage__still-slot--base {
+  opacity: 1;
+}
+
+.stage__still-slot--overlay {
+  z-index: 1;
+  transition: opacity 140ms ease;
+}
+
+.stage__still-slot--overlay-visible {
+  opacity: 1;
+}
+
+.stage__video-slot {
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  will-change: opacity, transform;
+}
+
+.stage__video-slot--active {
+  opacity: 1;
+}
+
+.stage--callout-open .stage__still-slot--base,
+.stage--callout-open .stage__still-slot--overlay-visible,
+.stage--callout-open .stage__video-slot--active {
+  transform: translate3d(-50%, -50%, 0) scale(var(--hotspot-callout-scale));
+}
+
+.stage__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background:
+    radial-gradient(circle at 76% 20%, rgba(27, 69, 216, 0.18), transparent 24%),
+    linear-gradient(180deg, rgba(2, 6, 14, 0.06) 0%, rgba(2, 6, 14, 0.1) 22%, rgba(2, 6, 14, 0.52) 100%),
+    linear-gradient(90deg, rgba(2, 6, 14, 0.52) 0%, transparent 24%, transparent 76%, rgba(2, 6, 14, 0.42) 100%);
+  pointer-events: none;
+}
+
+.experience-header,
+.timeline-wrap,
+.language-switch-wrap {
+  position: absolute;
+  z-index: 6;
+}
+
+.experience-header {
+  top: 3.125rem;
+  left: 3.125rem;
+  z-index: 7;
+}
+
+.brand-pill__logo {
+  height: 71px;
+  width: auto;
+}
+
+.language-switch__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.6rem;
+  height: 3.6rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease,
+    opacity 180ms ease;
+}
+
+.language-switch__button--en {
+  background: #1b45d9;
+}
+
+.language-switch__button--zh {
+  background: #081441;
+}
+
+.language-switch__button:disabled {
+  opacity: 0.72;
+}
+
+.language-switch__icon {
+  display: block;
+  object-fit: contain;
+}
+
+.language-switch__icon--asset {
+  width: 100%;
+  height: 100%;
+  padding: 0.62rem;
+}
+
+.language-switch__icon--zh {
+  filter: brightness(0) saturate(100%) invert(16%) sepia(91%) saturate(4070%) hue-rotate(223deg)
+    brightness(85%) contrast(95%);
+}
+
+.timeline-wrap {
+  display: flex;
+  justify-content: center;
+  left: 50%;
+  bottom: 11.5625rem;
+  width: calc(100vw - 6rem);
+  max-width: 100%;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-50%, 1.2rem, 0);
+  transition:
+    opacity 260ms ease,
+    transform 260ms ease;
+}
+
+.timeline-wrap--visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate3d(-50%, 0, 0);
+}
+
+.language-switch-wrap {
+  right: 3.25rem;
+  bottom: 4.375rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 1rem, 0);
+  transition:
+    opacity 260ms ease,
+    transform 260ms ease;
+}
+
+.language-switch-wrap > div {
+  display: flex;
+  gap: .5rem;
+}
+
+.language-switch-wrap--visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate3d(0, 0, 0);
+}
+
+.timeline {
+  display: inline-flex;
+  align-items: center;
+  gap: 3rem;
+}
+
+.timeline--collapsed {
+  justify-content: center;
+}
+
+.timeline--expanded {
+  gap: 5rem;
+}
+
+.timeline__arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.timeline__arrow:hover {
+  opacity: 0.84;
+}
+
+.timeline__arrow img {
+  width: 2.8rem;
+  height: 2.8rem;
+}
+
+.timeline__arrow--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.timeline__rail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .6rem;
+  overflow: auto hidden;
+  scrollbar-width: none;
+}
+
+.timeline__rail::-webkit-scrollbar {
+  display: none;
+}
+
+.timeline__transition-lines {
+  display: block;
+  height: 3.5rem;
+  display: block;
+  object-fit: cover;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.timeline__current,
+.timeline__chip {
+  flex: 0 0 auto;
+  min-width: 150px;
+  padding: 0.2rem 0.92rem 0.28rem;
+  border: 1px solid transparent;
+  background: var(--corning-blue);
+  color: var(--corning-cyan);
+  font-size: 2.1rem;
+  font-weight: 300;
+  letter-spacing: 0.03em;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+.timeline__current {
+  color: #fff;
+  font-weight: 800;
+}
+
+.timeline__chip--active {
+  font-weight: 800;
+  color: #fff;
+}
+
+.timeline__chip--projected {
+  color: var(--corning-cyan);
+}
+
+.hotspot {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  opacity: 0;
+  transform: translate3d(0, 1rem, 0);
+  pointer-events: none;
+  transition:
+    opacity 260ms ease,
+    transform 260ms ease;
+}
+
+.hotspot--visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.hotspot__backdrop {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at var(--hotspot-trigger-x) var(--hotspot-trigger-y),
+      var(--hotspot-backdrop-highlight) 0%,
+      rgba(67, 184, 251, 0.2) 12%,
+      rgba(27, 69, 216, 0.12) 24%,
+      transparent 44%
+    ),
+    linear-gradient(180deg, rgba(2, 10, 28, 0.1) 0%, rgba(2, 10, 28, 0.22) 100%),
+    linear-gradient(
+      90deg,
+      var(--hotspot-backdrop-edge) 0%,
+      var(--hotspot-backdrop-wash) 34%,
+      rgba(27, 69, 216, 0.14) 68%,
+      rgba(7, 20, 59, 0.28) 100%
+    );
+  -webkit-backdrop-filter: blur(0);
+  backdrop-filter: blur(0);
+  transition:
+    opacity 260ms ease,
+    -webkit-backdrop-filter 260ms ease,
+    backdrop-filter 260ms ease;
+}
+
+.hotspot--callout-open .hotspot__backdrop {
+  opacity: 1;
+  -webkit-backdrop-filter: var(--hotspot-backdrop-blur);
+  backdrop-filter: var(--hotspot-backdrop-blur);
+}
+
+.hotspot__trigger-position {
+  position: absolute;
+  pointer-events: none;
+}
+
+.hotspot__trigger-position {
+  left: var(--hotspot-trigger-x);
+  top: var(--hotspot-trigger-y);
+  transition:
+    left 220ms ease,
+    top 220ms ease;
+}
+
+.hotspot__callout-block {
+  position: absolute;
+  left: var(--hotspot-callout-block-x);
+  top: var(--hotspot-callout-block-y);
+  width: var(--hotspot-callout-block-width);
+  height: var(--hotspot-callout-block-height);
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 2rem);
+  padding: 1.25rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.9rem;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--hotspot-callout-block-fill);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 24px 64px rgba(2, 6, 14, 0.34);
+  transform: translate3d(0, 0.9rem, 0);
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.hotspot__callout-block--visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.hotspot__content {
+  position: absolute;
+  top: 100%;
+  right: 100%;
+  min-width: 500px;
+}
+
+.hotspot--visible .hotspot__trigger {
+  pointer-events: auto;
+}
+
+.hotspot__icon-frame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.55rem;
+  height: 3.55rem;
+}
+
+.hotspot__icon {
+  width: 100%;
+  height: 100%;
+}
+
+.hotspot__callout-title {
+  color: #fff;
+  font-size: clamp(1.9rem, 2.3vw, 4rem);
+  font-weight: 800;
+  line-height: 1.02;
+  background-color: blue;
+  padding: 2rem;
+  width: 100%;
+}
+
+.hotspot__callout-body {
+  color: #fff;
+  margin: 0;
+  font-size: clamp(1rem, 1.25vw, 1.4rem);
+  line-height: 1.38;
+  background-color: blue;
+  position: absolute;
+  left: 100%;
+  width: 100%;
+  padding: 2rem;
+}
+
+.callout-media {
+  position: absolute;
+  inset: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.callout-media__asset {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.callout-animation {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.callout-animation__layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.callout-media--fallback {
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 1.2rem;
+}
+
+.callout-media--fallback::before {
+  content: "";
+  position: absolute;
+  inset: 0.55rem;
+  opacity: 0.8;
+}
+
+.callout-media__copy {
+  position: relative;
+  z-index: 1;
+  max-width: 16rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.callout-media__eyebrow {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.callout-media__status {
+  font-size: clamp(1rem, 1.35vw, 1.5rem);
+  line-height: 1.02;
+  color: #fff;
+}
+
+.callout-media__hint {
+  margin: 0;
+  font-size: clamp(0.85rem, 1vw, 1rem);
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.84);
+}
+
+@media (max-width: 1100px) {
+  .experience-header {
+    top: 1rem;
+    left: 1rem;
+  }
+
+  .timeline-wrap {
+    width: calc(100vw - 2.5rem);
+    bottom: 1.1rem;
+  }
+
+  .language-switch-wrap {
+    right: 1rem;
+    bottom: 1rem;
+  }
+}
+
+@media (max-width: 820px) {
+  .timeline__arrow {
+    width: 2.35rem;
+    height: 2.35rem;
+  }
+
+  .timeline__arrow img {
+    width: 2.35rem;
+    height: 2.35rem;
+  }
+
+  .timeline__current,
+  .timeline__chip {
+    min-width: 3.9rem;
+    padding-inline: 0.62rem;
+    font-size: 0.76rem;
+  }
+
+  .hotspot__callout-block {
+    position: absolute;
+    top: 100%;
+  }
+}

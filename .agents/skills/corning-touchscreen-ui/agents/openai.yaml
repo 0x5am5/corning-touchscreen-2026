@@ -1,0 +1,4 @@
+interface:
+  display_name: "Corning Touchscreen UI"
+  short_description: "Design system for the Corning kiosk UI"
+  default_prompt: "Use $corning-touchscreen-ui to keep this app aligned with the existing Corning touchscreen UI language."

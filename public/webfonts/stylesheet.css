@@ -1,0 +1,53 @@
+@font-face {
+    font-family: 'NN Nouvelle Grotesk STD';
+    src: url('/webfonts/NNNouvelleGroteskSTD-Bold.woff2') format('woff2'),
+        url('/webfonts/NNNouvelleGroteskSTD-Bold.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'NN Nouvelle Grotesk STD Normal';
+    src: url('/webfonts/NNNouvelleGroteskSTD-Normal.woff2') format('woff2'),
+        url('/webfonts/NNNouvelleGroteskSTD-Normal.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'NN Nouvelle Grotesk STD';
+    src: url('/webfonts/NNNouvelleGroteskSTD-Medium.woff2') format('woff2'),
+        url('/webfonts/NNNouvelleGroteskSTD-Medium.woff') format('woff');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'NN Nouvelle Grotesk STD';
+    src: url('/webfonts/NNNouvelleGroteskSTD-Light.woff2') format('woff2'),
+        url('/webfonts/NNNouvelleGroteskSTD-Light.woff') format('woff');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'NN Nouvelle Grotesk STD';
+    src: url('/webfonts/NNNouvelleGroteskSTD-Black.woff2') format('woff2'),
+        url('/webfonts/NNNouvelleGroteskSTD-Black.woff') format('woff');
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'NN Nouvelle Grotesk STD Fat';
+    src: url('/webfonts/NNNouvelleGroteskSTD-Fat.woff2') format('woff2'),
+        url('/webfonts/NNNouvelleGroteskSTD-Fat.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
