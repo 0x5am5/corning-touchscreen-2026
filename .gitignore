@@ -32,3 +32,6 @@ public/Corning_Display_Transitions_V2.mp4
 
 # opensrc - source code for packages
 opensrc/
+.worktrees/
+
+*.mp4

@@ -1,23 +1,49 @@
 import { expect, test } from "./fixtures";
 
-test("switches language with the UI buttons and keeps it across navigation", async ({
+test("opens the language menu and shows all native labels in order", async ({
   experience,
 }) => {
-  await experience.languageButton("zh").click();
-  await expect(experience.shell).toHaveAttribute("data-language", "zh");
+  await experience.openLanguageMenu();
+  await expect(experience.languageOptions).toHaveText([
+    "English",
+    "繁體中文",
+    "简体中文",
+    "한국어",
+    "日本語",
+  ]);
+});
+
+test("selects simplified chinese and keeps it across navigation", async ({
+  experience,
+}) => {
+  await experience.selectLanguage("zh-Hans");
+  await expect(experience.shell).toHaveAttribute("data-language", "zh-Hans");
   await expect(experience.timelineCurrent).toHaveText("1940年代");
 
   await experience.nextButton.click();
   await experience.waitForIdle("1960s");
-  await expect(experience.shell).toHaveAttribute("data-language", "zh");
+  await expect(experience.shell).toHaveAttribute("data-language", "zh-Hans");
   await expect(experience.timelineCurrent).toHaveText("1960年代");
-
-  await experience.languageButton("en").click();
-  await expect(experience.shell).toHaveAttribute("data-language", "en");
-  await expect(experience.timelineCurrent).toHaveText("1960s");
 });
 
-test("toggles language with the keyboard and updates hotspot copy", async ({
+test("selects japanese from the menu and updates hotspot copy", async ({
+  experience,
+  page,
+}) => {
+  await experience.selectLanguage("ja");
+  await expect(experience.shell).toHaveAttribute("data-language", "ja");
+
+  await experience.hotspotTrigger.click();
+  await expect(experience.shell).toHaveAttribute("data-playback-state", "calloutOpen");
+  await expect(page.getByTestId("hotspot-title")).toHaveText(
+    "変革をもたらす技術",
+  );
+  await expect(page.getByTestId("hotspot-body")).toContainText(
+    "白黒テレビが家庭に登場し",
+  );
+});
+
+test("cycles languages with the keyboard while the callout stays open", async ({
   experience,
   page,
 }) => {
@@ -26,14 +52,22 @@ test("toggles language with the keyboard and updates hotspot copy", async ({
   await expect(page.getByTestId("hotspot-title")).toHaveText(
     "Transformative technology",
   );
-  await expect(page.getByTestId("hotspot-body")).toContainText(
-    "Black and white TVs debut in homes",
-  );
 
-  await page.keyboard.press("a");
-  await expect(experience.shell).toHaveAttribute("data-language", "zh");
-  await expect(page.getByTestId("hotspot-title")).toHaveText("变革性技术");
-  await expect(page.getByTestId("hotspot-body")).toContainText(
-    "家庭开始迎来黑白电视",
-  );
+  const cycle = [
+    { language: "zh-Hant", title: "變革性技術" },
+    { language: "zh-Hans", title: "变革性技术" },
+    { language: "ko", title: "혁신적 기술" },
+    { language: "ja", title: "変革をもたらす技術" },
+    { language: "en", title: "Transformative technology" },
+  ] as const;
+
+  for (const step of cycle) {
+    await page.keyboard.press("a");
+    await expect(experience.shell).toHaveAttribute("data-language", step.language);
+    await expect(page.getByTestId("hotspot-title")).toHaveText(step.title);
+    await page.waitForTimeout(400);
+  }
+
+  await expect(experience.shell).toHaveAttribute("data-session-mode", "interactive");
+  await expect(experience.shell).toHaveAttribute("data-playback-state", "calloutOpen");
 });

@@ -1,24 +1,12 @@
+import { interfaceCopy } from "../../data/experience";
 import type { CalloutContentProps } from "./types";
-
-const fallbackCopy = {
-  en: {
-    eyebrow: "Callout animation",
-    title: "Animation in development",
-    body: "This scene will use a custom animated sequence once its media is ready.",
-  },
-  zh: {
-    eyebrow: "弹窗动画",
-    title: "动画开发中",
-    body: "该场景后续将替换为定制动画内容。",
-  },
-} as const;
 
 export function FallbackCalloutContent({
   sceneId,
   language,
   isOpen,
 }: CalloutContentProps) {
-  const copy = fallbackCopy[language];
+  const copy = interfaceCopy[language].fallbackCallout;
 
   return (
     <div

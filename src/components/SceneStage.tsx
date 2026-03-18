@@ -1,18 +1,23 @@
 import {
+  type CSSProperties,
+  useCallback,
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 
 import {
   getLocalizedText,
+  isCalloutPlaybackState,
+  isAdjacentTransition,
+  isJumpTransition,
+  type AdjacentTransitionStep,
+  type JumpTransitionStep,
   type Language,
   type PlaybackState,
   type SceneNode,
   type TransitionStep,
 } from "../data/experience";
-import { CalloutContentHost } from "./callouts/CalloutContentHost";
 import { preloadCalloutAsset } from "../lib/calloutAssetPreload";
 import { e2eSettings, formatDataState } from "../lib/e2e";
 import {
@@ -21,41 +26,63 @@ import {
   subscribeToStill,
   type StillLoadStatus,
 } from "../lib/stillPreload";
+import {
+  getHiddenStillSlot,
+  useVideoHandoff,
+  type TransitionSlotName,
+} from "../hooks/useVideoHandoff";
+import {
+  getHotspotOpenScale,
+  getHotspotStageOffset,
+} from "../lib/hotspotOpenState";
+import { Hotspot } from "./stage/Hotspot";
+import type { ChromeMotionPhase } from "../lib/chromeMotion";
 
-type TransitionSlotName = "previous" | "next";
-type StillSlotName = "primary" | "secondary";
+const TRANSITION_FADE_DURATION_MS = e2eSettings.transitionFadeDurationMs;
+const TRANSITION_HANDOFF_LEAD_MS = e2eSettings.transitionHandoffLeadMs;
+const JUMP_DESTINATION_HOLD_DURATION_MS = 1000;
 
 type FrameAwareVideoElement = HTMLVideoElement & {
   cancelVideoFrameCallback?: (handle: number) => void;
-  requestVideoFrameCallback?: (callback: () => void) => number;
+  requestVideoFrameCallback?: (
+    callback: (now: number, metadata: { mediaTime: number }) => void,
+  ) => number;
 };
 
 interface SceneStageProps {
+  chromeMotionPhase: ChromeMotionPhase;
   controlsDisabled: boolean;
   currentScene: SceneNode;
   destinationScene: SceneNode | null;
   language: Language;
   playbackState: PlaybackState;
   activeTransition: TransitionStep | null;
-  previousTransition: TransitionStep | null;
-  nextTransition: TransitionStep | null;
+  previousTransition: AdjacentTransitionStep | null;
+  nextTransition: AdjacentTransitionStep | null;
   uiVisible: boolean;
+  onCalloutClosed: () => void;
+  onCalloutOpened: () => void;
   onToggleCallout: () => void;
+  onTransitionFailed: () => void;
   onTransitionSettled: () => void;
 }
 
-const TRANSITION_FADE_DURATION_MS = e2eSettings.transitionFadeDurationMs;
+interface StageOpenView {
+  offsetX: number;
+  offsetY: number;
+  scale: number;
+}
 
 function getTransitionKey(transition: TransitionStep | null) {
   if (!transition) {
     return null;
   }
 
-  return `${transition.from}-${transition.to}-${transition.direction}`;
-}
+  if (isJumpTransition(transition)) {
+    return `${transition.kind}-${transition.from}-${transition.to}-${transition.direction}-${transition.startFrame}-${transition.endFrame}`;
+  }
 
-function getHiddenStillSlot(slot: StillSlotName): StillSlotName {
-  return slot === "primary" ? "secondary" : "primary";
+  return `${transition.kind}-${transition.from}-${transition.to}-${transition.direction}`;
 }
 
 function useStillStatus(src: string | null) {
@@ -78,9 +105,33 @@ function useStillStatus(src: string | null) {
   return status;
 }
 
+function getStageOpenView(hotspot: SceneNode["hotspot"]): StageOpenView {
+  const scale = getHotspotOpenScale(hotspot);
+
+  if (typeof window === "undefined") {
+    return {
+      offsetX: 0,
+      offsetY: 0,
+      scale,
+    };
+  }
+
+  const offset = getHotspotStageOffset(
+    hotspot,
+    window.innerWidth,
+    window.innerHeight,
+  );
+
+  return {
+    offsetX: offset.x,
+    offsetY: offset.y,
+    scale,
+  };
+}
+
 function syncTransitionSlot(
   video: HTMLVideoElement | null,
-  transition: TransitionStep | null,
+  transition: AdjacentTransitionStep | null,
 ) {
   if (!video) {
     return;
@@ -115,7 +166,108 @@ function syncTransitionSlot(
   video.load();
 }
 
+function syncJumpVideo(video: HTMLVideoElement | null, src: string | null) {
+  if (!video) {
+    return;
+  }
+
+  const nextSrc = src ?? "";
+  const currentSrc = video.dataset.transitionSrc ?? "";
+
+  if (!nextSrc) {
+    if (currentSrc) {
+      video.pause();
+      delete video.dataset.transitionSrc;
+      video.removeAttribute("src");
+      video.load();
+    }
+    return;
+  }
+
+  if (currentSrc === nextSrc) {
+    return;
+  }
+
+  video.pause();
+  video.dataset.transitionSrc = nextSrc;
+  video.src = nextSrc;
+  video.load();
+}
+
+function getFrameAtTime(timeSeconds: number, fps: number) {
+  return Math.floor((timeSeconds * fps) + 0.5);
+}
+
+function seekVideoToFrame(video: HTMLVideoElement, frame: number, fps: number) {
+  const nextTime = frame / fps;
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      video.removeEventListener("error", handleError);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("seeked", handleSeeked);
+    };
+
+    const finish = (callback: () => void) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      callback();
+    };
+
+    const handleError = () => {
+      finish(() => reject(new Error("Failed to prepare jump transition video")));
+    };
+
+    const handleSeeked = () => {
+      finish(resolve);
+    };
+
+    const requestSeek = () => {
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+
+      if (Math.abs(video.currentTime - nextTime) < 0.001) {
+        finish(resolve);
+        return;
+      }
+
+      video.addEventListener("seeked", handleSeeked, { once: true });
+
+      try {
+        video.currentTime = nextTime;
+      } catch (error) {
+        finish(() => {
+          reject(
+            error instanceof Error
+              ? error
+              : new Error("Failed to seek jump transition video"),
+          );
+        });
+      }
+    };
+
+    const handleLoadedMetadata = () => {
+      requestSeek();
+    };
+
+    video.addEventListener("error", handleError, { once: true });
+
+    if (video.readyState >= 1) {
+      requestSeek();
+      return;
+    }
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata, { once: true });
+  });
+}
+
 export function SceneStage({
+  chromeMotionPhase,
   controlsDisabled,
   currentScene,
   destinationScene,
@@ -125,207 +277,74 @@ export function SceneStage({
   previousTransition,
   nextTransition,
   uiVisible,
+  onCalloutClosed,
+  onCalloutOpened,
   onToggleCallout,
+  onTransitionFailed,
   onTransitionSettled,
 }: SceneStageProps) {
   const previousVideoRef = useRef<HTMLVideoElement | null>(null);
   const nextVideoRef = useRef<HTMLVideoElement | null>(null);
-  const fadeTimerRef = useRef<number | null>(null);
-  const settleFrameRef = useRef<number | null>(null);
-  const activeSlotRef = useRef<TransitionSlotName | null>(null);
-  const completionRequestedRef = useRef(false);
-  const handoffRequestedRef = useRef(false);
-  const videoFadingOutRef = useRef(false);
-  const primaryStillSrcRef = useRef<string | null>(currentScene.holdImageSrc);
-  const secondaryStillSrcRef = useRef<string | null>(null);
-  const baseStillSlotRef = useRef<StillSlotName>("primary");
-  const [activeSlot, setActiveSlot] = useState<TransitionSlotName | null>(null);
-  const [handoffRequested, setHandoffRequested] = useState(false);
-  const [primaryStillSrc, setPrimaryStillSrc] = useState<string | null>(currentScene.holdImageSrc);
-  const [secondaryStillSrc, setSecondaryStillSrc] = useState<string | null>(null);
-  const [baseStillSlot, setBaseStillSlot] = useState<StillSlotName>("primary");
-  const [overlayStillVisible, setOverlayStillVisible] = useState(false);
-  const destinationStillStatus = useStillStatus(destinationScene?.holdImageSrc ?? null);
+  const jumpVideoRef = useRef<HTMLVideoElement | null>(null);
+  const jumpFrameHoldRequestedRef = useRef(false);
+  const jumpFrameHoldTimerRef = useRef<number | null>(null);
+  const jumpFrameHoldRequestIdRef = useRef(0);
+
   const activeTransitionKey = getTransitionKey(activeTransition);
-  const destinationStillReady = destinationStillStatus === "ready";
-  const destinationStillResolved = destinationStillStatus !== "loading";
-  const overlayStillSlot = getHiddenStillSlot(baseStillSlot);
-  const isCalloutOpen = playbackState === "calloutOpen";
-  const stageClassName = `stage ${isCalloutOpen ? "stage--callout-open" : ""}`.trim();
-  const hotspot = currentScene.hotspot;
-  const activeTrigger = isCalloutOpen ? hotspot.triggerOpen : hotspot.trigger;
-  const hotspotStyle = {
-    "--hotspot-trigger-x": `${activeTrigger.x * 100}%`,
-    "--hotspot-trigger-y": `${activeTrigger.y * 100}%`,
-    "--hotspot-callout-block-x": `${hotspot.calloutBlock.x * 100}%`,
-    "--hotspot-callout-block-y": `${hotspot.calloutBlock.y * 100}%`,
-    "--hotspot-callout-block-width": `${hotspot.calloutBlock.width * 100}%`,
-    "--hotspot-callout-block-height": `${hotspot.calloutBlock.height * 100}%`,
-    "--hotspot-accent": currentScene.theme.accent,
-    "--hotspot-glow": currentScene.theme.glow,
+  const destinationStillStatus = useStillStatus(destinationScene?.holdImageSrc ?? null);
+  const isCalloutActive = isCalloutPlaybackState(playbackState);
+  const stageClassName = `stage ${isCalloutActive ? "stage--callout-open" : ""}`.trim();
+  const [stageOpenView, setStageOpenView] = useState(() =>
+    getStageOpenView(currentScene.hotspot),
+  );
+
+  useEffect(() => {
+    const updateStageOpenView = () => {
+      setStageOpenView(getStageOpenView(currentScene.hotspot));
+    };
+
+    updateStageOpenView();
+    window.addEventListener("resize", updateStageOpenView);
+
+    return () => {
+      window.removeEventListener("resize", updateStageOpenView);
+    };
+  }, [currentScene.hotspot]);
+
+  const stageStyle = {
+    "--hotspot-callout-scale": String(stageOpenView.scale),
+    "--hotspot-stage-offset-x": `${stageOpenView.offsetX}px`,
+    "--hotspot-stage-offset-y": `${stageOpenView.offsetY}px`,
   } as CSSProperties;
 
-  const clearFadeTimer = () => {
-    if (fadeTimerRef.current === null) {
+  const getVideoForSlot = useCallback((slot: TransitionSlotName) => {
+    if (slot === "previous") return previousVideoRef.current;
+    if (slot === "next") return nextVideoRef.current;
+    return jumpVideoRef.current;
+  }, []);
+
+  const clearJumpFrameHoldTimer = useCallback(() => {
+    if (jumpFrameHoldTimerRef.current === null) {
       return;
     }
 
-    window.clearTimeout(fadeTimerRef.current);
-    fadeTimerRef.current = null;
-  };
+    window.clearTimeout(jumpFrameHoldTimerRef.current);
+    jumpFrameHoldTimerRef.current = null;
+  }, []);
 
-  const clearSettleFrame = () => {
-    if (settleFrameRef.current === null) {
-      return;
-    }
+  const handoff = useVideoHandoff({
+    activeTransition,
+    destinationHoldImageSrc: destinationScene?.holdImageSrc ?? null,
+    destinationStillStatus,
+    getVideoForSlot,
+    initialHoldImageSrc: currentScene.holdImageSrc,
+    onTransitionFailed,
+    onTransitionSettled,
+  });
 
-    window.cancelAnimationFrame(settleFrameRef.current);
-    settleFrameRef.current = null;
-  };
+  const overlayStillSlot = getHiddenStillSlot(handoff.baseStillSlot);
 
-  const updatePrimaryStillSrc = (src: string | null) => {
-    if (primaryStillSrcRef.current === src) {
-      return;
-    }
-
-    primaryStillSrcRef.current = src;
-    setPrimaryStillSrc(src);
-  };
-
-  const updateSecondaryStillSrc = (src: string | null) => {
-    if (secondaryStillSrcRef.current === src) {
-      return;
-    }
-
-    secondaryStillSrcRef.current = src;
-    setSecondaryStillSrc(src);
-  };
-
-  const getStillSrc = (slot: StillSlotName) =>
-    slot === "primary" ? primaryStillSrcRef.current : secondaryStillSrcRef.current;
-
-  const setStillSrc = (slot: StillSlotName, src: string | null) => {
-    if (slot === "primary") {
-      updatePrimaryStillSrc(src);
-      return;
-    }
-
-    updateSecondaryStillSrc(src);
-  };
-
-  const setBaseStillSlotValue = (slot: StillSlotName) => {
-    if (baseStillSlotRef.current === slot) {
-      return;
-    }
-
-    baseStillSlotRef.current = slot;
-    setBaseStillSlot(slot);
-  };
-
-  const setActiveSlotValue = (slot: TransitionSlotName | null) => {
-    activeSlotRef.current = slot;
-    setActiveSlot(slot);
-  };
-
-  const setHandoffRequestedValue = (nextValue: boolean) => {
-    if (handoffRequestedRef.current === nextValue) {
-      return;
-    }
-
-    handoffRequestedRef.current = nextValue;
-    setHandoffRequested(nextValue);
-  };
-
-  const setVideoFadingOutValue = (nextValue: boolean) => {
-    videoFadingOutRef.current = nextValue;
-  };
-
-  const setOverlayStillVisibleValue = (nextValue: boolean) => {
-    setOverlayStillVisible(nextValue);
-  };
-
-  const pauseSlot = (slot: TransitionSlotName) => {
-    const video = slot === "previous" ? previousVideoRef.current : nextVideoRef.current;
-
-    if (!video) {
-      return;
-    }
-
-    video.pause();
-  };
-
-  const requestTransitionSettle = () => {
-    if (completionRequestedRef.current) {
-      return;
-    }
-
-    completionRequestedRef.current = true;
-    clearFadeTimer();
-    clearSettleFrame();
-    onTransitionSettled();
-  };
-
-  const requestHandoff = () => {
-    if (completionRequestedRef.current || handoffRequestedRef.current) {
-      return;
-    }
-
-    setHandoffRequestedValue(true);
-  };
-
-  const promoteOverlayStill = () => {
-    const previousBaseSlot = baseStillSlotRef.current;
-    const nextBaseSlot = getHiddenStillSlot(previousBaseSlot);
-
-    setBaseStillSlotValue(nextBaseSlot);
-    setOverlayStillVisibleValue(false);
-    clearSettleFrame();
-    settleFrameRef.current = window.requestAnimationFrame(() => {
-      setStillSrc(previousBaseSlot, null);
-      requestTransitionSettle();
-    });
-  };
-
-  const startStillReveal = () => {
-    if (
-      completionRequestedRef.current ||
-      videoFadingOutRef.current ||
-      !destinationScene
-    ) {
-      return;
-    }
-
-    const nextOverlaySlot = getHiddenStillSlot(baseStillSlotRef.current);
-
-    if (getStillSrc(nextOverlaySlot) !== destinationScene.holdImageSrc) {
-      setStillSrc(nextOverlaySlot, destinationScene.holdImageSrc);
-    }
-
-    setOverlayStillVisibleValue(true);
-    setVideoFadingOutValue(true);
-    clearFadeTimer();
-    fadeTimerRef.current = window.setTimeout(() => {
-      promoteOverlayStill();
-    }, TRANSITION_FADE_DURATION_MS);
-  };
-
-  const handleVideoEnded = (slot: TransitionSlotName) => {
-    if (completionRequestedRef.current || activeSlotRef.current !== slot) {
-      return;
-    }
-
-    requestHandoff();
-  };
-
-  const handleVideoError = (slot: TransitionSlotName) => {
-    if (completionRequestedRef.current || activeSlotRef.current !== slot) {
-      return;
-    }
-
-    pauseSlot(slot);
-    requestHandoff();
-  };
-
+  // Sync adjacent video slots
   useEffect(() => {
     syncTransitionSlot(previousVideoRef.current, previousTransition);
   }, [previousTransition?.src]);
@@ -334,68 +353,94 @@ export function SceneStage({
     syncTransitionSlot(nextVideoRef.current, nextTransition);
   }, [nextTransition?.src]);
 
-  useEffect(() => {
-    return () => {
-      clearFadeTimer();
-      clearSettleFrame();
-    };
-  }, []);
-
+  // Preload callout assets
   useEffect(() => {
     const assetSrc = currentScene.hotspot.calloutContent.assetSrc;
-
-    if (!assetSrc) {
-      return;
-    }
-
+    if (!assetSrc) return;
     void preloadCalloutAsset(assetSrc);
   }, [currentScene.hotspot.calloutContent.assetSrc]);
 
+  // Reset handoff state on transition change
   useEffect(() => {
-    if (activeTransition) {
-      return;
-    }
-
-    const visibleStillSlot = baseStillSlotRef.current;
-    const hiddenStillSlot = getHiddenStillSlot(visibleStillSlot);
-
-    if (getStillSrc(visibleStillSlot) !== currentScene.holdImageSrc) {
-      setStillSrc(visibleStillSlot, currentScene.holdImageSrc);
-    }
-
-    if (getStillSrc(hiddenStillSlot) !== null) {
-      setStillSrc(hiddenStillSlot, null);
-    }
-
-    setOverlayStillVisibleValue(false);
-    setHandoffRequestedValue(false);
-    setVideoFadingOutValue(false);
-  }, [activeTransition, currentScene.holdImageSrc]);
-
-  useEffect(() => {
-    if (!activeTransition || !destinationScene) {
-      return;
-    }
-
-    const hiddenStillSlot = getHiddenStillSlot(baseStillSlotRef.current);
-
-    if (getStillSrc(hiddenStillSlot) !== destinationScene.holdImageSrc) {
-      setStillSrc(hiddenStillSlot, destinationScene.holdImageSrc);
-    }
-  }, [activeTransition, destinationScene?.holdImageSrc]);
-
-  useEffect(() => {
-    clearFadeTimer();
-    clearSettleFrame();
-    completionRequestedRef.current = false;
-    setHandoffRequestedValue(false);
-    setOverlayStillVisibleValue(false);
-    setVideoFadingOutValue(false);
+    jumpFrameHoldRequestedRef.current = false;
+    jumpFrameHoldRequestIdRef.current += 1;
+    clearJumpFrameHoldTimer();
+    handoff.resetForTransition();
+    handoff.setActiveSlot(null);
 
     if (!activeTransition) {
       previousVideoRef.current?.pause();
       nextVideoRef.current?.pause();
-      setActiveSlotValue(null);
+      jumpVideoRef.current?.pause();
+    }
+  }, [
+    activeTransition,
+    activeTransitionKey,
+    clearJumpFrameHoldTimer,
+    nextTransition?.src,
+    previousTransition?.src,
+  ]);
+
+  const requestJumpFrameHold = useCallback(() => {
+    if (jumpFrameHoldRequestedRef.current) {
+      return true;
+    }
+
+    if (!activeTransition || !isJumpTransition(activeTransition)) {
+      handoff.requestHandoff();
+      return true;
+    }
+
+    const video = jumpVideoRef.current;
+
+    if (!video) {
+      return true;
+    }
+
+    jumpFrameHoldRequestedRef.current = true;
+    const requestId = ++jumpFrameHoldRequestIdRef.current;
+    video.pause();
+
+    void seekVideoToFrame(video, activeTransition.endFrame, activeTransition.fps)
+      .then(() => {
+        if (jumpFrameHoldRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        clearJumpFrameHoldTimer();
+        jumpFrameHoldTimerRef.current = window.setTimeout(() => {
+          if (jumpFrameHoldRequestIdRef.current !== requestId) {
+            return;
+          }
+
+          handoff.requestHandoff();
+        }, JUMP_DESTINATION_HOLD_DURATION_MS);
+      })
+      .catch((error: unknown) => {
+        if (jumpFrameHoldRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        jumpFrameHoldRequestedRef.current = false;
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        handoff.handleVideoError("jump");
+      });
+
+    return true;
+  }, [
+    activeTransition,
+    clearJumpFrameHoldTimer,
+    handoff.handleVideoError,
+    handoff.requestHandoff,
+  ]);
+
+  // Start adjacent transition playback
+  useEffect(() => {
+    if (!activeTransition || !isAdjacentTransition(activeTransition)) {
       return;
     }
 
@@ -407,18 +452,18 @@ export function SceneStage({
           : null;
 
     if (!nextActiveSlot) {
-      requestTransitionSettle();
+      handoff.requestTransitionSettle();
       return;
     }
 
-    const video = nextActiveSlot === "previous" ? previousVideoRef.current : nextVideoRef.current;
+    const video = getVideoForSlot(nextActiveSlot);
 
     if (!video) {
-      requestTransitionSettle();
+      handoff.requestTransitionSettle();
       return;
     }
 
-    setActiveSlotValue(nextActiveSlot);
+    handoff.setActiveSlot(nextActiveSlot);
     video.pause();
 
     try {
@@ -435,13 +480,11 @@ export function SceneStage({
 
     if (e2eSettings.enabled) {
       const handoffTimer = window.setTimeout(() => {
-        requestHandoff();
+        handoff.requestHandoff();
       }, e2eSettings.transitionHandoffDelayMs);
 
       return () => {
         window.clearTimeout(handoffTimer);
-        clearFadeTimer();
-        clearSettleFrame();
       };
     }
 
@@ -450,42 +493,107 @@ export function SceneStage({
         return;
       }
 
-      handleVideoError(nextActiveSlot);
+      handoff.handleVideoError(nextActiveSlot);
     });
-
-    return () => {
-      clearFadeTimer();
-      clearSettleFrame();
-    };
   }, [
     activeTransition,
-    activeTransitionKey,
     nextTransition?.src,
-    onTransitionSettled,
     previousTransition?.src,
   ]);
 
+  // Start jump transition playback
   useEffect(() => {
-    if (e2eSettings.enabled || !activeTransition || !activeSlot || handoffRequested) {
+    if (!activeTransition || !isJumpTransition(activeTransition)) {
       return;
     }
 
-    const video = activeSlot === "previous" ? previousVideoRef.current : nextVideoRef.current;
+    const video = jumpVideoRef.current;
+
+    if (!video) {
+      onTransitionFailed();
+      return;
+    }
+
+    let disposed = false;
+    let handoffTimerId: number | null = null;
+
+    handoff.setActiveSlot("jump");
+    syncJumpVideo(video, activeTransition.src);
+
+    const startJumpPlayback = async (transition: JumpTransitionStep) => {
+      try {
+        await seekVideoToFrame(video, transition.startFrame, transition.fps);
+
+        if (disposed) {
+          return;
+        }
+
+        if (e2eSettings.enabled) {
+          handoffTimerId = window.setTimeout(() => {
+            handoff.requestHandoff();
+          }, e2eSettings.jumpTransitionHandoffDelayMs);
+          return;
+        }
+
+        await video.play();
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        handoff.handleVideoError("jump");
+      }
+    };
+
+    void startJumpPlayback(activeTransition);
+
+    return () => {
+      disposed = true;
+
+      if (handoffTimerId !== null) {
+        window.clearTimeout(handoffTimerId);
+      }
+      video.pause();
+    };
+  }, [activeTransition]);
+
+  // Adjacent transition frame-watching for early handoff
+  useEffect(() => {
+    if (
+      e2eSettings.enabled ||
+      !activeTransition ||
+      !handoff.activeSlot ||
+      handoff.handoffRequested ||
+      !isAdjacentTransition(activeTransition)
+    ) {
+      return;
+    }
+
+    const video = getVideoForSlot(handoff.activeSlot);
 
     if (!video) {
       return;
     }
 
-    const handoffThresholdSeconds = TRANSITION_FADE_DURATION_MS / 1000;
+    const handoffThresholdSeconds =
+      (TRANSITION_FADE_DURATION_MS + TRANSITION_HANDOFF_LEAD_MS) / 1000;
     const frameAwareVideo = video as FrameAwareVideoElement;
     let frameRequestId: number | null = null;
     let disposed = false;
     const fallbackTimerId = window.setTimeout(() => {
-      requestHandoff();
-    }, Math.max(activeTransition.durationMs - TRANSITION_FADE_DURATION_MS, 0));
+      handoff.requestHandoff();
+    }, Math.max(
+      activeTransition.durationMs -
+        (TRANSITION_FADE_DURATION_MS + TRANSITION_HANDOFF_LEAD_MS),
+      0,
+    ));
 
     const maybeRequestHandoff = () => {
-      if (disposed || completionRequestedRef.current || handoffRequestedRef.current) {
+      if (disposed) {
         return true;
       }
 
@@ -496,7 +604,7 @@ export function SceneStage({
       const remainingSeconds = durationSeconds - video.currentTime;
 
       if (remainingSeconds <= handoffThresholdSeconds) {
-        requestHandoff();
+        handoff.requestHandoff();
         return true;
       }
 
@@ -541,46 +649,109 @@ export function SceneStage({
     };
   }, [
     activeTransition,
-    activeSlot,
-    handoffRequested,
+    handoff.activeSlot,
+    handoff.handoffRequested,
   ]);
 
+  // Jump transition frame-watching for end-frame hold
   useEffect(() => {
-    if (!activeTransition || !handoffRequested) {
+    if (
+      e2eSettings.enabled ||
+      !activeTransition ||
+      !handoff.activeSlot ||
+      handoff.handoffRequested ||
+      handoff.activeSlot !== "jump" ||
+      !isJumpTransition(activeTransition)
+    ) {
       return;
     }
 
-    if (!destinationStillReady) {
-      if (destinationStillResolved) {
-        requestTransitionSettle();
+    const video = jumpVideoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    const frameAwareVideo = video as FrameAwareVideoElement;
+    let frameRequestId: number | null = null;
+    let disposed = false;
+    const fallbackTimerId = window.setTimeout(() => {
+      requestJumpFrameHold();
+    }, activeTransition.durationMs + TRANSITION_FADE_DURATION_MS);
+
+    const maybeRequestHandoff = (timeSeconds = video.currentTime) => {
+      if (disposed) {
+        return true;
       }
 
-      return;
+      if (getFrameAtTime(timeSeconds, activeTransition.fps) >= activeTransition.endFrame) {
+        return requestJumpFrameHold();
+      }
+
+      return false;
+    };
+
+    if (typeof frameAwareVideo.requestVideoFrameCallback === "function") {
+      const watchFrame = (
+        _now: number,
+        metadata: { mediaTime: number },
+      ) => {
+        if (maybeRequestHandoff(metadata.mediaTime)) {
+          return;
+        }
+
+        frameRequestId = frameAwareVideo.requestVideoFrameCallback?.(watchFrame) ?? null;
+      };
+
+      frameRequestId = frameAwareVideo.requestVideoFrameCallback(watchFrame);
+    } else {
+      const handleTimeUpdate = () => {
+        maybeRequestHandoff();
+      };
+
+      video.addEventListener("timeupdate", handleTimeUpdate);
+      maybeRequestHandoff();
+
+      return () => {
+        disposed = true;
+        window.clearTimeout(fallbackTimerId);
+        video.removeEventListener("timeupdate", handleTimeUpdate);
+      };
     }
 
-    startStillReveal();
+    return () => {
+      disposed = true;
+      window.clearTimeout(fallbackTimerId);
+
+      if (
+        frameRequestId !== null &&
+        typeof frameAwareVideo.cancelVideoFrameCallback === "function"
+      ) {
+        frameAwareVideo.cancelVideoFrameCallback(frameRequestId);
+      }
+    };
   }, [
     activeTransition,
-    destinationStillReady,
-    destinationStillResolved,
-    handoffRequested,
+    handoff.activeSlot,
+    handoff.handoffRequested,
+    requestJumpFrameHold,
   ]);
 
   const primaryStillClassName = `stage__still stage__still-slot ${
-    baseStillSlot === "primary"
+    handoff.baseStillSlot === "primary"
       ? "stage__still-slot--base"
       : "stage__still-slot--overlay"
   } ${
-    overlayStillSlot === "primary" && overlayStillVisible
+    overlayStillSlot === "primary" && handoff.overlayStillVisible
       ? "stage__still-slot--overlay-visible"
       : ""
   }`.trim();
   const secondaryStillClassName = `stage__still stage__still-slot ${
-    baseStillSlot === "secondary"
+    handoff.baseStillSlot === "secondary"
       ? "stage__still-slot--base"
       : "stage__still-slot--overlay"
   } ${
-    overlayStillSlot === "secondary" && overlayStillVisible
+    overlayStillSlot === "secondary" && handoff.overlayStillVisible
       ? "stage__still-slot--overlay-visible"
       : ""
   }`.trim();
@@ -588,21 +759,38 @@ export function SceneStage({
   return (
     <section
       className={stageClassName}
+      style={stageStyle}
       aria-label={getLocalizedText(currentScene.yearLabel, language)}
       data-testid="scene-stage"
       data-scene-id={currentScene.id}
       data-language={language}
       data-playback-state={playbackState}
       data-active-transition={activeTransitionKey ?? ""}
+      data-active-transition-kind={activeTransition?.kind ?? ""}
       data-active-transition-src={activeTransition?.src ?? ""}
+      data-jump-direction={
+        activeTransition?.kind === "jump" ? activeTransition.direction : ""
+      }
+      data-jump-start-frame={
+        activeTransition?.kind === "jump"
+          ? String(activeTransition.startFrame)
+          : ""
+      }
+      data-jump-end-frame={
+        activeTransition?.kind === "jump"
+          ? String(activeTransition.endFrame)
+          : ""
+      }
       data-destination-scene-id={destinationScene?.id ?? ""}
       data-destination-still-status={destinationStillStatus}
-      data-overlay-still-visible={formatDataState(overlayStillVisible)}
+      data-handoff-phase={handoff.handoffPhase}
+      data-overlay-still-visible={formatDataState(handoff.overlayStillVisible)}
+      data-video-fading-out={formatDataState(handoff.videoFadingOut)}
       data-ui-visible={formatDataState(uiVisible)}
     >
       <img
         className={primaryStillClassName}
-        src={primaryStillSrc ?? undefined}
+        src={handoff.primaryStillSrc ?? undefined}
         alt=""
         aria-hidden="true"
         data-testid="stage-still-primary"
@@ -611,7 +799,7 @@ export function SceneStage({
 
       <img
         className={secondaryStillClassName}
-        src={secondaryStillSrc ?? undefined}
+        src={handoff.secondaryStillSrc ?? undefined}
         alt=""
         aria-hidden="true"
         data-testid="stage-still-secondary"
@@ -621,106 +809,73 @@ export function SceneStage({
       <video
         ref={previousVideoRef}
         className={`stage__video stage__video-slot ${
-          activeSlot === "previous" ? "stage__video-slot--active" : ""
-        }`}
+          handoff.activeSlot === "previous" ? "stage__video-slot--active" : ""
+        } ${
+          handoff.activeSlot === "previous" && handoff.videoFadingOut
+            ? "stage__video-slot--fading-out"
+            : ""
+        }`.trim()}
         playsInline
         preload="auto"
         aria-hidden="true"
         muted={e2eSettings.enabled}
         data-testid="transition-video-previous"
         data-slot="previous"
-        onEnded={() => handleVideoEnded("previous")}
-        onError={() => handleVideoError("previous")}
+        onEnded={() => handoff.handleVideoEnded("previous")}
+        onError={() => handoff.handleVideoError("previous")}
       />
 
       <video
         ref={nextVideoRef}
         className={`stage__video stage__video-slot ${
-          activeSlot === "next" ? "stage__video-slot--active" : ""
-        }`}
+          handoff.activeSlot === "next" ? "stage__video-slot--active" : ""
+        } ${
+          handoff.activeSlot === "next" && handoff.videoFadingOut
+            ? "stage__video-slot--fading-out"
+            : ""
+        }`.trim()}
         playsInline
         preload="auto"
         aria-hidden="true"
         muted={e2eSettings.enabled}
         data-testid="transition-video-next"
         data-slot="next"
-        onEnded={() => handleVideoEnded("next")}
-        onError={() => handleVideoError("next")}
+        onEnded={() => handoff.handleVideoEnded("next")}
+        onError={() => handoff.handleVideoError("next")}
       />
 
-      <div className="stage__scrim" />
+      <video
+        ref={jumpVideoRef}
+        className={`stage__video stage__video-slot ${
+          handoff.activeSlot === "jump" ? "stage__video-slot--active" : ""
+        } ${
+          handoff.activeSlot === "jump" && handoff.videoFadingOut
+            ? "stage__video-slot--fading-out"
+            : ""
+        }`.trim()}
+        playsInline
+        preload="auto"
+        aria-hidden="true"
+        muted={e2eSettings.enabled}
+        data-testid="transition-video-jump"
+        data-slot="jump"
+        onEnded={requestJumpFrameHold}
+        onError={() => handoff.handleVideoError("jump")}
+      />
 
-      <div
-        className={`hotspot ${uiVisible ? "hotspot--visible" : ""} ${
-          isCalloutOpen ? "hotspot--callout-open" : ""
-        }`}
-        style={hotspotStyle}
-        data-testid="hotspot-layer"
-        data-open={formatDataState(isCalloutOpen)}
-        data-visible={formatDataState(uiVisible)}
-      >
-        <div className="hotspot__backdrop" aria-hidden="true" />
-        <div
-          className={`hotspot__callout-block ${
-            isCalloutOpen ? "hotspot__callout-block--visible" : ""
-          }`}
-          data-testid="hotspot-callout"
-          data-open={formatDataState(isCalloutOpen)}
-        >
-          {isCalloutOpen ? (
-            <CalloutContentHost
-              key={currentScene.id}
-              contentId={hotspot.calloutContent.id}
-              sceneId={currentScene.id}
-              language={language}
-              isOpen={isCalloutOpen}
-              assetSrc={hotspot.calloutContent.assetSrc}
-            />
-          ) : null}
-
-          <div className="hotspot__content">
-            <div className="hotspot__callout-title" data-testid="hotspot-title">
-              {getLocalizedText(hotspot.title, language)}
-            </div>
-            <p className="hotspot__callout-body" data-testid="hotspot-body">
-              {getLocalizedText(hotspot.body, language)}
-            </p>
-          </div>
-        </div>
-
-        <div className="hotspot__trigger-position">
-          <button
-            type="button"
-            className="hotspot__trigger"
-            onClick={onToggleCallout}
-            disabled={controlsDisabled}
-            aria-expanded={isCalloutOpen}
-            aria-label={getLocalizedText(hotspot.label, language)}
-            aria-keyshortcuts="Space"
-            data-testid="hotspot-trigger"
-          >
-            <img
-              src="/svg/zoom%20small%20box.svg"
-              style={{
-                position: "absolute",
-                bottom: "100%",
-                right: "100%",
-                opacity: isCalloutOpen ? 0 : 1,
-              }}
-              width={54}
-              alt=""
-            />
-
-            <span className="hotspot__icon-frame" aria-hidden="true">
-              <img
-                className="hotspot__icon hotspot__icon--asset"
-                src={isCalloutOpen ? "/svg/minus.svg" : "/svg/zoom%20big%20box.svg"}
-                alt=""
-              />
-            </span>
-          </button>
-        </div>
-      </div>
+      <Hotspot
+        chromeMotionPhase={chromeMotionPhase}
+        controlsDisabled={controlsDisabled}
+        hotspot={currentScene.hotspot}
+        language={language}
+        playbackState={playbackState}
+        sceneId={currentScene.id}
+        theme={currentScene.theme}
+        uiVisible={uiVisible}
+        onCalloutClosed={onCalloutClosed}
+        onCalloutOpened={onCalloutOpened}
+        onToggleCallout={onToggleCallout}
+      />
     </section>
   );
 }

@@ -1,212 +1,250 @@
 import {
   startTransition,
+  useCallback,
   useEffect,
+  useId,
   useMemo,
-  useReducer,
+  useRef,
 } from "react";
+import { Globe } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { SceneStage } from "./SceneStage";
 import { TimelineNav } from "./TimelineNav";
 import {
+  isCalloutPlaybackState,
+  getLocalizedText,
   getProjectedSceneId,
-  getSceneDistance,
   getSceneIndex,
-  getTransitionStep,
+  interfaceCopy,
+  languageOptions,
   sceneList,
   scenes,
   type DecadeId,
   type Language,
-  type PlaybackState,
-  type TransitionStep,
 } from "../data/experience";
+import {
+  createChromeVariants,
+  getChromeTransition,
+} from "../lib/chromeMotion";
 import { preloadSceneStills } from "../lib/stillPreload";
 import { e2eSettings, formatDataState } from "../lib/e2e";
-
-type FlashState = "idle" | "cover" | "reveal";
-
-interface ExperienceState {
-  activeTransition: TransitionStep | null;
-  currentSceneId: DecadeId;
-  flashState: FlashState;
-  flashTarget: DecadeId | null;
-  language: Language;
-  playbackState: PlaybackState;
-}
-
-type ExperienceAction =
-  | { type: "navigate"; targetId: DecadeId }
-  | { type: "setLanguage"; language: Language }
-  | { type: "toggleCallout" }
-  | { type: "closeCallout" }
-  | { type: "transitionComplete" }
-  | { type: "flashMidpoint" }
-  | { type: "flashComplete" };
+import {
+  getAdjacentTransition,
+  SCREENSAVER_RESET_SCENE_ID,
+  useKioskState,
+} from "../hooks/useKioskState";
+import { useChromePhaseTransitions } from "../hooks/useChromePhaseTransitions";
+import { useInactivityTimer } from "../hooks/useInactivityTimer";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { useLanguageMenu } from "../hooks/useLanguageMenu";
 
 const shouldHideCursor = import.meta.env.PROD;
+const modifierOnlyKeys = new Set([
+  "Alt",
+  "AltGraph",
+  "Control",
+  "Meta",
+  "Shift",
+]);
+const SCREENSAVER_ENTER_EASE = [0.22, 1, 0.36, 1] as const;
+const SCREENSAVER_EXIT_EASE = [0.4, 0, 1, 1] as const;
+const LANGUAGE_CHROME_VARIANTS = createChromeVariants({ x: 56 });
 
-const initialState: ExperienceState = {
-  activeTransition: null,
-  currentSceneId: "1940s",
-  flashState: "idle",
-  flashTarget: null,
-  language: "en",
-  playbackState: "scenePaused",
-};
-
-function getNextLanguage(language: Language): Language {
-  return language === "en" ? "zh" : "en";
-}
-
-function getAdjacentTransition(sceneId: DecadeId, direction: -1 | 1) {
-  const nextSceneIndex = getSceneIndex(sceneId) + direction;
-
-  if (nextSceneIndex < 0 || nextSceneIndex >= sceneList.length) {
-    return null;
-  }
-
-  return getTransitionStep(sceneId, sceneList[nextSceneIndex].id);
-}
-
-function beginAdjacentTransition(
-  state: ExperienceState,
-  from: DecadeId,
-  to: DecadeId,
-) {
-  return {
-    ...state,
-    activeTransition: getTransitionStep(from, to),
-    flashState: "idle" as FlashState,
-    flashTarget: null,
-    playbackState: "transitioning" as PlaybackState,
-  };
-}
-
-function beginFlashJump(state: ExperienceState, targetId: DecadeId) {
-  return {
-    ...state,
-    activeTransition: null,
-    flashState: "cover" as FlashState,
-    flashTarget: targetId,
-    playbackState: "scenePaused" as PlaybackState,
-  };
-}
-
-function reducer(state: ExperienceState, action: ExperienceAction): ExperienceState {
-  switch (action.type) {
-    case "navigate": {
-      const navigationOrigin = getProjectedSceneId(
-        state.currentSceneId,
-        state.activeTransition,
-        state.flashTarget,
-      );
-      const distance = getSceneDistance(navigationOrigin, action.targetId);
-
-      if (distance === 0) {
-        if (state.playbackState === "transitioning" || state.flashState !== "idle") {
-          return state;
-        }
-
-        return {
-          ...state,
-          playbackState: "scenePaused",
-        };
-      }
-
-      if (state.playbackState === "transitioning") {
-        return distance > 1 ? beginFlashJump(state, action.targetId) : state;
-      }
-
-      if (distance === 1) {
-        return beginAdjacentTransition(state, navigationOrigin, action.targetId);
-      }
-
-      return beginFlashJump(state, action.targetId);
-    }
-
-    case "setLanguage":
-      return {
-        ...state,
-        language: action.language,
-      };
-
-    case "toggleCallout":
-      if (state.playbackState === "transitioning" || state.flashState !== "idle") {
-        return state;
-      }
-
-      return {
-        ...state,
-        playbackState:
-          state.playbackState === "calloutOpen" ? "scenePaused" : "calloutOpen",
-      };
-
-    case "closeCallout":
-      if (state.playbackState !== "calloutOpen") {
-        return state;
-      }
-
-      return {
-        ...state,
-        playbackState: "scenePaused",
-      };
-
-    case "transitionComplete": {
-      if (!state.activeTransition) {
-        return state;
-      }
-
-      return {
-        ...state,
-        activeTransition: null,
-        currentSceneId: state.activeTransition.to,
-        flashState: "idle",
-        flashTarget: null,
-        playbackState: "scenePaused",
-      };
-    }
-
-    case "flashMidpoint":
-      if (state.flashState !== "cover" || !state.flashTarget) {
-        return state;
-      }
-
-      return {
-        ...state,
-        currentSceneId: state.flashTarget,
-        flashState: "reveal",
-        flashTarget: null,
-      };
-
-    case "flashComplete":
-      if (state.flashState === "idle") {
-        return state;
-      }
-
-      return {
-        ...state,
-        flashState: "idle",
-      };
-
-    default:
-      return state;
-  }
+function isModifierOnlyKey(event: KeyboardEvent) {
+  return modifierOnlyKeys.has(event.key);
 }
 
 export function KioskExperience() {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useKioskState();
+  const prefersReducedMotion = useReducedMotion() ?? false;
+  const brandHoldTimerRef = useRef<number | null>(null);
+  const screensaverRef = useRef<HTMLDivElement | null>(null);
+  const languageMenuId = useId();
 
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) {
+  const currentScene = scenes[state.currentSceneId];
+  const screensaverScene = scenes[SCREENSAVER_RESET_SCENE_ID];
+  const projectedSceneId = useMemo(
+    () =>
+      getProjectedSceneId(
+        state.currentSceneId,
+        state.activeTransition,
+        state.flashTarget,
+      ),
+    [state.activeTransition, state.currentSceneId, state.flashTarget],
+  );
+  const uiVisible =
+    state.sessionMode === "interactive" &&
+    state.playbackState !== "transitioning" &&
+    state.flashState === "idle";
+  const isCalloutActive = isCalloutPlaybackState(state.playbackState);
+  const controlsDisabled = !uiVisible;
+  const screensaverActive = state.sessionMode === "screensaver";
+  const shouldShowSceneChrome =
+    state.sessionMode === "interactive" &&
+    state.playbackState !== "transitioning" &&
+    state.flashState === "idle" &&
+    !isCalloutActive;
+
+  const { chromeMotionPhase, chromeVisible, chromeInteractive } =
+    useChromePhaseTransitions(shouldShowSceneChrome, prefersReducedMotion);
+
+  const shouldShowHotspot =
+    state.sessionMode === "interactive" &&
+    state.playbackState !== "transitioning" &&
+    state.flashState === "idle";
+
+  const { chromeMotionPhase: hotspotChromeMotionPhase } =
+    useChromePhaseTransitions(shouldShowHotspot, prefersReducedMotion);
+
+  const {
+    isLanguageMenuOpen,
+    languageMenuRef,
+    closeLanguageMenu,
+    toggleLanguageMenu,
+  } = useLanguageMenu(chromeMotionPhase, screensaverActive, state.uiResetToken);
+
+  const shellClassName = [
+    "experience-shell",
+    shouldHideCursor ? "experience-shell--cursor-hidden" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const previousTransition = useMemo(
+    () => getAdjacentTransition(state.currentSceneId, -1),
+    [state.currentSceneId],
+  );
+  const nextTransition = useMemo(
+    () => getAdjacentTransition(state.currentSceneId, 1),
+    [state.currentSceneId],
+  );
+  const destinationScene = state.activeTransition
+    ? scenes[state.activeTransition.to]
+    : null;
+  const currentCopy = interfaceCopy[state.language];
+  const currentLanguageOption =
+    languageOptions.find((option) => option.value === state.language) ??
+    languageOptions[0];
+  const screensaverRootTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : { duration: 0.46, ease: SCREENSAVER_ENTER_EASE };
+  const screensaverExitTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : { duration: 0.34, ease: SCREENSAVER_EXIT_EASE };
+
+  // --- Stable callbacks ---
+
+  const clearBrandHoldTimer = useCallback(() => {
+    if (brandHoldTimerRef.current === null) return;
+    window.clearTimeout(brandHoldTimerRef.current);
+    brandHoldTimerRef.current = null;
+  }, []);
+
+  const onInactive = useCallback(() => {
+    dispatch({ type: "activateScreensaver" });
+  }, [dispatch]);
+
+  const handleNavigate = useCallback((targetId: DecadeId) => {
+    startTransition(() => {
+      dispatch({ type: "navigate", targetId });
+    });
+  }, [dispatch]);
+
+  const handleStep = useCallback((direction: -1 | 1) => {
+    const nextIndex = getSceneIndex(state.currentSceneId) + direction;
+
+    if (nextIndex < 0 || nextIndex >= sceneList.length) {
       return;
     }
+
+    handleNavigate(sceneList[nextIndex].id);
+  }, [handleNavigate, state.currentSceneId]);
+
+  const handleBrandPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (screensaverActive) return;
+
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    clearBrandHoldTimer();
+    brandHoldTimerRef.current = window.setTimeout(() => {
+      brandHoldTimerRef.current = null;
+      dispatch({ type: "activateScreensaver" });
+    }, e2eSettings.longPressDurationMs);
+  }, [clearBrandHoldTimer, dispatch, screensaverActive]);
+
+  const dismissScreensaver = useCallback(() => {
+    dispatch({ type: "dismissScreensaverAndReset" });
+  }, [dispatch]);
+
+  const handleLanguageMenuToggle = useCallback(() => {
+    dispatch({ type: "registerActivity" });
+    toggleLanguageMenu();
+  }, [dispatch, toggleLanguageMenu]);
+
+  const handleLanguageChange = useCallback((language: Language) => {
+    dispatch({ type: "registerActivity" });
+    dispatch({ type: "setLanguage", language });
+    closeLanguageMenu();
+  }, [closeLanguageMenu, dispatch]);
+
+  const onRegisterActivity = useCallback(() => {
+    dispatch({ type: "registerActivity" });
+  }, [dispatch]);
+
+  const onCloseCallout = useCallback(() => {
+    dispatch({ type: "closeCallout" });
+  }, [dispatch]);
+
+  const onCalloutOpened = useCallback(() => {
+    dispatch({ type: "calloutOpened" });
+  }, [dispatch]);
+
+  const onCalloutClosed = useCallback(() => {
+    dispatch({ type: "calloutClosed" });
+  }, [dispatch]);
+
+  const onToggleCallout = useCallback(() => {
+    dispatch({ type: "toggleCallout" });
+  }, [dispatch]);
+
+  const onSetLanguage = useCallback((language: Language) => {
+    dispatch({ type: "setLanguage", language });
+  }, [dispatch]);
+
+  // --- Hooks ---
+
+  useInactivityTimer(
+    state.activityToken,
+    state.sessionMode === "interactive",
+    onInactive,
+  );
+
+  useKeyboardShortcuts({
+    chromeInteractive,
+    currentSceneId: state.currentSceneId,
+    flashState: state.flashState,
+    isLanguageMenuOpen,
+    language: state.language,
+    playbackState: state.playbackState,
+    screensaverActive,
+    onCloseCallout,
+    onCloseLanguageMenu: closeLanguageMenu,
+    onNavigate: handleNavigate,
+    onRegisterActivity,
+    onSetLanguage,
+    onToggleCallout,
+  });
+
+  // --- One-time setup effects ---
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
 
     let disposed = false;
 
     void import("@tauri-apps/api/window")
       .then(async ({ getCurrentWindow }) => {
-        if (disposed) {
-          return;
-        }
+        if (disposed) return;
 
         const appWindow = getCurrentWindow();
 
@@ -230,9 +268,32 @@ export function KioskExperience() {
   }, []);
 
   useEffect(() => {
-    if (state.flashState !== "cover") {
-      return;
-    }
+    return () => {
+      clearBrandHoldTimer();
+    };
+  }, [clearBrandHoldTimer]);
+
+  // Global activity listeners
+  useEffect(() => {
+    const handlePointerDown = () => {
+      dispatch({ type: "registerActivity" });
+    };
+    const handleWheel = () => {
+      dispatch({ type: "registerActivity" });
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("wheel", handleWheel);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("wheel", handleWheel);
+    };
+  }, [dispatch]);
+
+  // Flash cover → midpoint → complete
+  useEffect(() => {
+    if (state.flashState !== "cover") return;
 
     const midpointTimer = window.setTimeout(() => {
       dispatch({ type: "flashMidpoint" });
@@ -241,12 +302,10 @@ export function KioskExperience() {
     return () => {
       window.clearTimeout(midpointTimer);
     };
-  }, [state.flashState]);
+  }, [dispatch, state.flashState]);
 
   useEffect(() => {
-    if (state.flashState !== "reveal") {
-      return;
-    }
+    if (state.flashState !== "reveal") return;
 
     const completeTimer = window.setTimeout(() => {
       dispatch({ type: "flashComplete" });
@@ -255,138 +314,44 @@ export function KioskExperience() {
     return () => {
       window.clearTimeout(completeTimer);
     };
-  }, [state.flashState]);
+  }, [dispatch, state.flashState]);
 
-  const currentScene = scenes[state.currentSceneId];
-  const projectedSceneId = useMemo(
-    () =>
-      getProjectedSceneId(
-        state.currentSceneId,
-        state.activeTransition,
-        state.flashTarget,
-      ),
-    [
-      state.activeTransition,
-      state.currentSceneId,
-      state.flashTarget,
-    ],
-  );
-  const projectedIndex = getSceneIndex(projectedSceneId);
-  const uiVisible =
-    state.playbackState !== "transitioning" &&
-    state.flashState === "idle";
-  const isCalloutOpen = state.playbackState === "calloutOpen";
-  const chromeVisible = uiVisible && !isCalloutOpen;
-  const controlsDisabled = !uiVisible;
-  const chromeDisabled = controlsDisabled || isCalloutOpen;
-  const shellClassName = [
-    "experience-shell",
-    shouldHideCursor ? "experience-shell--cursor-hidden" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const previousTransition = useMemo(
-    () => getAdjacentTransition(state.currentSceneId, -1),
-    [state.currentSceneId],
-  );
-  const nextTransition = useMemo(
-    () => getAdjacentTransition(state.currentSceneId, 1),
-    [state.currentSceneId],
-  );
-  const destinationScene = state.activeTransition
-    ? scenes[state.activeTransition.to]
-    : null;
-
-  const interfaceCopy = useMemo(
-    () => ({
-      en: {
-        timeline: "Historical display timeline",
-        language: "Language",
-      },
-      zh: {
-        timeline: "历史显示时间线",
-        language: "语言",
-      },
-    }),
-    [],
-  );
-
-  const currentCopy = interfaceCopy[state.language];
-
-  const handleNavigate = (targetId: DecadeId) => {
-    startTransition(() => {
-      dispatch({ type: "navigate", targetId });
-    });
-  };
-
-  const handleStep = (direction: -1 | 1) => {
-    const nextIndex = projectedIndex + direction;
-
-    if (nextIndex < 0 || nextIndex >= sceneList.length) {
-      return;
-    }
-
-    handleNavigate(sceneList[nextIndex].id);
-  };
-
+  // Clear brand hold timer on session mode change
   useEffect(() => {
+    clearBrandHoldTimer();
+  }, [clearBrandHoldTimer, state.sessionMode]);
+
+  // Screensaver keyboard/wheel handling
+  useEffect(() => {
+    if (state.sessionMode !== "screensaver") return;
+
+    screensaverRef.current?.focus({ preventScroll: true });
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat) {
-        return;
-      }
+      if (event.repeat || isModifierOnlyKey(event)) return;
 
-      const isSpaceKey =
-        event.key === " " ||
-        event.key === "Spacebar" ||
-        event.code === "Space";
-
-      if (event.key === "Escape" && state.playbackState === "calloutOpen") {
-        event.preventDefault();
-        dispatch({ type: "closeCallout" });
-        return;
-      }
-
-      if (
-        isSpaceKey &&
-        state.flashState === "idle" &&
-        state.playbackState !== "transitioning"
-      ) {
-        event.preventDefault();
-        dispatch({ type: "toggleCallout" });
-        return;
-      }
-
-      if (event.key.toLowerCase() === "a") {
-        event.preventDefault();
-        dispatch({
-          type: "setLanguage",
-          language: getNextLanguage(state.language),
-        });
-        return;
-      }
-
-      if (chromeDisabled) {
-        return;
-      }
-
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        handleStep(-1);
-        return;
-      }
-
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        handleStep(1);
-      }
+      event.preventDefault();
+      event.stopPropagation();
+      dismissScreensaver();
     };
 
-    window.addEventListener("keydown", handleKeyDown);
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dismissScreensaver();
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("wheel", handleWheel, {
+      capture: true,
+      passive: false,
+    });
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("wheel", handleWheel, true);
     };
-  }, [chromeDisabled, handleStep, state.flashState, state.language, state.playbackState]);
+  }, [dismissScreensaver, state.sessionMode]);
 
   return (
     <main
@@ -398,9 +363,28 @@ export function KioskExperience() {
       data-language={state.language}
       data-playback-state={state.playbackState}
       data-flash-state={state.flashState}
+      data-active-transition-kind={state.activeTransition?.kind ?? ""}
+      data-jump-direction={
+        state.activeTransition?.kind === "jump"
+          ? state.activeTransition.direction
+          : ""
+      }
+      data-jump-start-frame={
+        state.activeTransition?.kind === "jump"
+          ? String(state.activeTransition.startFrame)
+          : ""
+      }
+      data-jump-end-frame={
+        state.activeTransition?.kind === "jump"
+          ? String(state.activeTransition.endFrame)
+          : ""
+      }
+      data-session-mode={state.sessionMode}
       data-ui-visible={formatDataState(uiVisible)}
+      data-chrome-phase={chromeMotionPhase}
     >
       <SceneStage
+        chromeMotionPhase={hotspotChromeMotionPhase}
         controlsDisabled={controlsDisabled}
         currentScene={currentScene}
         destinationScene={destinationScene}
@@ -410,90 +394,245 @@ export function KioskExperience() {
         previousTransition={previousTransition}
         nextTransition={nextTransition}
         uiVisible={uiVisible}
+        onCalloutOpened={onCalloutOpened}
+        onCalloutClosed={onCalloutClosed}
+        onTransitionFailed={() => dispatch({ type: "transitionFailed" })}
         onTransitionSettled={() => dispatch({ type: "transitionComplete" })}
-        onToggleCallout={() => dispatch({ type: "toggleCallout" })}
-      />
-
-      <div
-        className={`experience-shell__flash ${
-          state.flashState === "cover"
-            ? "experience-shell__flash--cover"
-            : state.flashState === "reveal"
-              ? "experience-shell__flash--reveal"
-              : ""
-        }`}
-        aria-hidden="true"
-        data-testid="experience-flash"
-        data-flash-state={state.flashState}
+        onToggleCallout={onToggleCallout}
       />
 
       <header className="experience-header">
-        <img
-          src="/svg/logo.svg"
-          alt="Corning"
-          className="brand-pill__logo brand-pill__logo--asset"
-        />
+        <button
+          type="button"
+          className="brand-button"
+          data-testid="brand-button"
+          onBlur={clearBrandHoldTimer}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+          }}
+          onPointerCancel={clearBrandHoldTimer}
+          onPointerDown={handleBrandPointerDown}
+          onPointerLeave={clearBrandHoldTimer}
+          onPointerUp={clearBrandHoldTimer}
+        >
+          <img
+            src="/svg/logo.svg"
+            alt="Corning"
+            className="brand-pill__logo brand-pill__logo--asset"
+          />
+        </button>
       </header>
 
       <div
-        className={`timeline-wrap ${chromeVisible ? "timeline-wrap--visible" : ""}`}
+        className="timeline-wrap"
         data-testid="timeline-wrap"
         data-visible={formatDataState(chromeVisible)}
+        data-chrome-phase={chromeMotionPhase}
+        style={{ pointerEvents: chromeInteractive ? "auto" : "none" }}
       >
-        <div aria-label={currentCopy.timeline}>
-          <TimelineNav
-            ariaLabel={currentCopy.timeline}
-            disabled={chromeDisabled}
-            language={state.language}
-            scenes={sceneList}
-            activeSceneId={state.currentSceneId}
-            projectedSceneId={projectedSceneId}
-            onNavigate={handleNavigate}
-            onStep={handleStep}
-          />
-        </div>
+        <TimelineNav
+          ariaLabel={currentCopy.timeline}
+          activeSceneId={state.currentSceneId}
+          chromeMotionPhase={chromeMotionPhase}
+          disabled={controlsDisabled}
+          language={state.language}
+          onActivity={onRegisterActivity}
+          onNavigate={handleNavigate}
+          onStep={handleStep}
+          resetSignal={state.uiResetToken}
+          scenes={sceneList}
+        />
       </div>
 
       <div
-        className={`language-switch-wrap ${chromeVisible ? "language-switch-wrap--visible" : ""}`}
+        className="language-switch-wrap"
         data-testid="language-switch-wrap"
         data-visible={formatDataState(chromeVisible)}
+        data-chrome-phase={chromeMotionPhase}
+        style={{ pointerEvents: chromeInteractive ? "auto" : "none" }}
       >
-        <div role="group" aria-label={currentCopy.language}>
-          <button
-            type="button"
-            className={`language-switch__button language-switch__button--en ${
-              state.language === "en" ? "language-switch__button--active" : ""
-            }`}
-            disabled={chromeDisabled}
-            onClick={() => dispatch({ type: "setLanguage", language: "en" })}
-            aria-label="English"
-            aria-keyshortcuts="A"
+        <motion.div
+          className="language-switch-wrap__inner"
+          initial={false}
+          animate={chromeMotionPhase}
+          variants={LANGUAGE_CHROME_VARIANTS}
+          transition={getChromeTransition(chromeMotionPhase, prefersReducedMotion)}
+        >
+          <div
+            ref={languageMenuRef}
+            className={`language-switch ${isLanguageMenuOpen ? "language-switch--open" : ""}`}
+            role="group"
+            aria-label={currentCopy.language}
           >
-            <img
-              src="/svg/english%20translation.svg"
-              alt=""
-              className="language-switch__icon language-switch__icon--asset language-switch__icon--en"
-            />
-          </button>
-          <button
-            type="button"
-            className={`language-switch__button language-switch__button--zh ${
-              state.language === "zh" ? "language-switch__button--active" : ""
-            }`}
-            disabled={chromeDisabled}
-            onClick={() => dispatch({ type: "setLanguage", language: "zh" })}
-            aria-label="Chinese"
-            aria-keyshortcuts="A"
-          >
-            <img
-              src="/svg/chinesse%20translation.svg"
-              alt=""
-              className="language-switch__icon language-switch__icon--asset language-switch__icon--zh"
-            />
-          </button>
-        </div>
+            <button
+              type="button"
+              className="language-switch__button"
+              disabled={controlsDisabled || !chromeInteractive}
+              onClick={handleLanguageMenuToggle}
+              aria-controls={languageMenuId}
+              aria-expanded={isLanguageMenuOpen}
+              aria-haspopup="listbox"
+              aria-label={`${currentCopy.languageMenuOpen}: ${currentLanguageOption.label}`}
+              aria-keyshortcuts="A"
+              data-testid="language-menu-button"
+            >
+              <Globe aria-hidden="true" className="language-switch__icon" strokeWidth={1.85} />
+            </button>
+            <div
+              id={languageMenuId}
+              className={`language-switch__menu ${isLanguageMenuOpen ? "language-switch__menu--open" : ""}`}
+              role="listbox"
+              aria-label={currentCopy.languageMenuLabel}
+              aria-hidden={!isLanguageMenuOpen}
+              data-testid="language-menu"
+            >
+              {languageOptions.map((option) => {
+                const isActive = option.value === state.language;
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="option"
+                    className={`language-switch__option ${
+                      isActive ? "language-switch__option--active" : ""
+                    }`}
+                    aria-selected={isActive}
+                    data-testid="language-option"
+                    data-language={option.value}
+                    onClick={() => handleLanguageChange(option.value)}
+                  >
+                    <span className="language-switch__option-label">{option.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </motion.div>
       </div>
+
+      <AnimatePresence>
+        {screensaverActive ? (
+          <motion.div
+            ref={screensaverRef}
+            className="screensaver"
+            role="button"
+            aria-label={currentCopy.screensaverPrompt}
+            tabIndex={0}
+            data-testid="screensaver"
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{
+              opacity: 1,
+              transition: screensaverRootTransition,
+            }}
+            exit={{
+              opacity: 0,
+              transition: screensaverExitTransition,
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              dismissScreensaver();
+            }}
+            onPointerDownCapture={(event) => {
+              event.stopPropagation();
+            }}
+            onWheel={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              dismissScreensaver();
+            }}
+          >
+            <motion.img
+              className="screensaver__still"
+              src={screensaverScene.holdImageSrc}
+              alt=""
+              aria-hidden="true"
+              initial={
+                prefersReducedMotion
+                  ? false
+                  : { opacity: 0, scale: 1.08 }
+              }
+              animate={{
+                opacity: 1,
+                scale: 1.04,
+                transition: prefersReducedMotion
+                  ? { duration: 0 }
+                  : {
+                      duration: 0.72,
+                      ease: SCREENSAVER_ENTER_EASE,
+                    },
+              }}
+              exit={{
+                opacity: 0.92,
+                scale: prefersReducedMotion ? 1.04 : 1.01,
+                transition: screensaverExitTransition,
+              }}
+            />
+
+            <motion.div
+              className="screensaver__scrim"
+              aria-hidden="true"
+              initial={prefersReducedMotion ? false : { opacity: 0 }}
+              animate={{
+                opacity: 1,
+                transition: screensaverRootTransition,
+              }}
+              exit={{
+                opacity: 0,
+                transition: screensaverExitTransition,
+              }}
+            />
+
+            <motion.div
+              className="screensaver__content"
+              initial={
+                prefersReducedMotion
+                  ? false
+                  : { opacity: 0, y: 28 }
+              }
+              animate={{
+                opacity: 1,
+                y: 0,
+                transition: prefersReducedMotion
+                  ? { duration: 0 }
+                  : {
+                      duration: 0.52,
+                      delay: 0.12,
+                      ease: SCREENSAVER_ENTER_EASE,
+                    },
+              }}
+              exit={{
+                opacity: 0,
+                y: prefersReducedMotion ? 0 : 18,
+                transition: screensaverExitTransition,
+              }}
+            >
+              <img
+                src="/svg/logo.svg"
+                alt="Corning"
+                className="screensaver__logo"
+              />
+              <p className="screensaver__eyebrow">
+                {currentCopy.screensaverEyebrow}
+              </p>
+              <h1 className="screensaver__title">
+                {currentCopy.screensaverTitle}
+              </h1>
+              <div className="screensaver__start-year">
+                {getLocalizedText(screensaverScene.yearLabel, state.language)}
+              </div>
+              <p className="screensaver__prompt">
+                {currentCopy.screensaverPrompt}
+              </p>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </main>
   );
 }

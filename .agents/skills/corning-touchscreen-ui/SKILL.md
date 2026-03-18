@@ -7,7 +7,7 @@ description: Preserve and extend the visual language of the Corning touchscreen 
 
 ## Overview
 
-Preserve and extend the Corning visual system indicated by the latest concept boards and user-provided references instead of inventing a new aesthetic. Favor a crisp editorial look built from cobalt Corning blue, white or light-gray fields, black contrast, restrained warm yellow accents, and hard-edged geometric composition. Treat the older dark glass-heavy kiosk styling in the current app as legacy implementation, not the default target, unless the user explicitly asks to preserve it.
+Preserve and extend the Corning visual system indicated by the latest concept boards and user-provided references instead of inventing a new aesthetic. Favor a crisp editorial look built from cobalt Corning blue, white or light-gray fields, black contrast, restrained warm yellow accents, and hard-edged geometric composition. Treat the older dark glass-heavy kiosk styling in the current app as legacy implementation, not the default target, unless the user explicitly asks to preserve it. For new controls and overlays, default to flat filled plates with no glass blur, no floating frame, and no decorative panel chrome unless the user explicitly requests that treatment.
 
 ## Start Here
 
@@ -22,7 +22,8 @@ Preserve and extend the Corning visual system indicated by the latest concept bo
 - Reuse `NN Nouvelle Grotesk STD` from `public/webfonts/` for UI copy. Introduce another typeface only when the user explicitly asks.
 - Build from the existing CSS custom properties in `src/App.css`. Extend the token set when needed instead of scattering unrelated hard-coded values.
 - Keep Corning blue in the `#1B45D8` to `#2347DB` range as the dominant brand color. Pair it primarily with white, light gray, and black. Use warm yellow only as a restrained supporting accent. Treat cyan as optional and secondary, not the default highlight color.
-- Favor sharp geometric modules, bars, triangles, stepped blocks, and editorial whitespace over glassmorphism, soft glows, and rounded consumer-app panels.
+- Favor sharp geometric modules, bars, triangles, stepped blocks, and editorial whitespace over glassmorphism, soft glows, rounded consumer-app panels, or framed/frosted control shells.
+- When adding menus, toggles, or chips, prefer flat solid-color blocks that sit directly in the composition; do not add outer frames, translucent washes, inset highlights, or faux depth by default.
 - Reuse the supplied SVG assets when a control already has a branded version. Do not replace them with generic icon sets unless the user asks.
 - Favor concise labels, bold hierarchy, and confident headline scale. Keep longer explanations inside modular content blocks or supporting overlays.
 - Use restrained motion: short fades, simple slide-ins, and precise wipes or reveals. Avoid playful or spring-heavy animation.
@@ -31,7 +32,7 @@ Preserve and extend the Corning visual system indicated by the latest concept bo
 
 1. Anchor the change in existing tokens, component classes, and asset paths.
 2. Decide whether the task should preserve a specific existing screen or move the experience toward the newer editorial brand direction. Default to the newer direction when the user provides a board or asks for a restyle.
-3. Build new control surfaces from flat or lightly layered brand plates, framed modules, and graphic dividers before reaching for frosted glass treatments.
+3. Build new control surfaces from flat brand plates and graphic dividers first. Avoid framed modules, frosted glass, blurred panels, inset borders, or other depth effects unless the user explicitly asks for them.
 4. Match the current chrome layout only when the user is extending the existing screen. Otherwise preserve the kiosk information architecture while restyling the surfaces to fit the board.
 5. Verify the result against desktop kiosk sizing first, then confirm smaller-width behavior if the change affects responsive layouts.
 
