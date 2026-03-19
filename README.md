@@ -39,6 +39,31 @@ Build the web bundle:
 bun run build
 ```
 
+## Media Workflow
+
+Video asset intake, compression guidance, and review steps live in
+[docs/media-assets.md](/Users/samuelgregory/Sites/NXT/corning/touchscreen-2026/docs/media-assets.md).
+
+Default repo workflow for new kiosk videos:
+
+```bash
+scripts/encode-kiosk-video.sh input.mov output.mp4
+```
+
+Encoding defaults:
+
+- Preserve `3840x2160`
+- Encode as `H.264` / `yuv420p`
+- Use `CRF 18` with `preset slow`
+- Strip audio unless explicitly needed
+- Write MP4 with `+faststart`
+- Keep a roughly 1-second GOP based on source fps for reliable seeking
+
+Practical rule:
+
+- Replace the shipped asset only if the new file is smaller and looks correct in kiosk playback.
+- Some clips, especially the current jump-transition files, may not shrink with the default recipe and should be left as-is unless a different validated encode beats them.
+
 ## Playwright
 
 The main automated coverage is a Playwright CLI suite against the web runtime at

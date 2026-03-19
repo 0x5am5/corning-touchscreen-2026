@@ -41,6 +41,7 @@ export class ExperienceHarness {
   readonly secondaryStill: Locator;
   readonly shell: Locator;
   readonly screensaver: Locator;
+  readonly screensaverVideo: Locator;
   readonly stage: Locator;
   readonly timelineCurrent: Locator;
   readonly timelineNav: Locator;
@@ -55,6 +56,7 @@ export class ExperienceHarness {
     this.shell = page.getByTestId("experience-shell");
     this.stage = page.getByTestId("scene-stage");
     this.screensaver = page.getByTestId("screensaver");
+    this.screensaverVideo = page.getByTestId("screensaver-video");
     this.flash = page.getByTestId("experience-flash");
     this.brandButton = page.getByTestId("brand-button");
     this.timelineNav = page.getByTestId("timeline-nav");
@@ -204,6 +206,7 @@ export class ExperienceHarness {
   async waitForScreensaverActive() {
     await expect(this.shell).toHaveAttribute("data-session-mode", "screensaver");
     await expect(this.screensaver).toBeVisible();
+    await expect(this.screensaverVideo).toBeVisible();
   }
 
   async waitForUiHidden(): Promise<TransitionSnapshot> {

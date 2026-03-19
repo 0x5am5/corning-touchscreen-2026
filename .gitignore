@@ -26,12 +26,8 @@ test-results
 *.sln
 *.sw?
 
-# Large video files (exceed GitHub 100MB limit)
-public/Corning_Display_Transitions_V1.mp4
-public/Corning_Display_Transitions_V2.mp4
-
 # opensrc - source code for packages
 opensrc/
 .worktrees/
 
-*.mp4
+**/*.mp4

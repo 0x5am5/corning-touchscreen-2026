@@ -816,7 +816,7 @@ export function SceneStage({
             : ""
         }`.trim()}
         playsInline
-        preload="auto"
+        preload="metadata"
         aria-hidden="true"
         muted={e2eSettings.enabled}
         data-testid="transition-video-previous"
@@ -835,7 +835,7 @@ export function SceneStage({
             : ""
         }`.trim()}
         playsInline
-        preload="auto"
+        preload="metadata"
         aria-hidden="true"
         muted={e2eSettings.enabled}
         data-testid="transition-video-next"
@@ -854,7 +854,7 @@ export function SceneStage({
             : ""
         }`.trim()}
         playsInline
-        preload="auto"
+        preload="metadata"
         aria-hidden="true"
         muted={e2eSettings.enabled}
         data-testid="transition-video-jump"

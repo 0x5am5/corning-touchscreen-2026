@@ -148,9 +148,7 @@ export interface InterfaceCopy {
   nextDecade: string;
   openTimeline: string;
   previousDecade: string;
-  screensaverEyebrow: string;
   screensaverPrompt: string;
-  screensaverTitle: string;
   timeline: string;
   fallbackCallout: FallbackCalloutCopy;
 }
@@ -184,9 +182,7 @@ export const interfaceCopy: Record<Language, InterfaceCopy> = {
     nextDecade: "Next decade",
     openTimeline: "Open decade timeline",
     previousDecade: "Previous decade",
-    screensaverEyebrow: "Corning display timeline",
     screensaverPrompt: "Touch anywhere to begin",
-    screensaverTitle: "Display innovations through the decades",
     timeline: "Historical display timeline",
     fallbackCallout: {
       eyebrow: "Callout animation",
@@ -202,9 +198,7 @@ export const interfaceCopy: Record<Language, InterfaceCopy> = {
     nextDecade: "下一個年代",
     openTimeline: "開啟年代時間軸",
     previousDecade: "上一個年代",
-    screensaverEyebrow: "康寧顯示時間軸",
     screensaverPrompt: "點擊任意位置開始",
-    screensaverTitle: "探索跨越年代的顯示創新",
     timeline: "歷史顯示時間軸",
     fallbackCallout: {
       eyebrow: "彈窗動畫",
@@ -220,9 +214,7 @@ export const interfaceCopy: Record<Language, InterfaceCopy> = {
     nextDecade: "下一个年代",
     openTimeline: "打开年代时间线",
     previousDecade: "上一个年代",
-    screensaverEyebrow: "康宁显示时间线",
     screensaverPrompt: "点击任意位置开始",
-    screensaverTitle: "探索跨越年代的显示创新",
     timeline: "历史显示时间线",
     fallbackCallout: {
       eyebrow: "弹窗动画",
@@ -238,9 +230,7 @@ export const interfaceCopy: Record<Language, InterfaceCopy> = {
     nextDecade: "다음 시대",
     openTimeline: "연대 타임라인 열기",
     previousDecade: "이전 시대",
-    screensaverEyebrow: "코닝 디스플레이 타임라인",
     screensaverPrompt: "아무 곳이나 터치하여 시작",
-    screensaverTitle: "세대를 아우르는 디스플레이 혁신",
     timeline: "디스플레이 역사 타임라인",
     fallbackCallout: {
       eyebrow: "콜아웃 애니메이션",
@@ -256,9 +246,7 @@ export const interfaceCopy: Record<Language, InterfaceCopy> = {
     nextDecade: "次の年代",
     openTimeline: "年代タイムラインを開く",
     previousDecade: "前の年代",
-    screensaverEyebrow: "コーニング ディスプレイ年表",
     screensaverPrompt: "どこでもタッチして開始",
-    screensaverTitle: "時代を超えるディスプレイ革新",
     timeline: "ディスプレイの歴史年表",
     fallbackCallout: {
       eyebrow: "コールアウトアニメーション",

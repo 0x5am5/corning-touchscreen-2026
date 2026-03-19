@@ -10,6 +10,12 @@ test("auto-activates after inactivity and dismisses to 1940 without leaking the 
   await experience.nextButton.click();
   await experience.waitForIdle("1960s");
   await experience.waitForScreensaverActive();
+  await expect(experience.screensaverVideo).toHaveAttribute(
+    "src",
+    "/Corning_Display_Screen Saver_V1.mp4",
+  );
+  await expect(experience.screensaverVideo).toHaveJSProperty("loop", true);
+  await expect(experience.screensaverVideo).toHaveJSProperty("muted", true);
 
   const box = await experience.screensaver.boundingBox();
 

@@ -24,3 +24,16 @@ npx opensrc <owner>/<repo>      # GitHub repo (e.g., npx opensrc vercel/ai)
 ```
 
 <!-- opensrc:end -->
+
+## Media Assets
+
+- For new or replacement video files, follow [docs/media-assets.md](/Users/samuelgregory/Sites/NXT/corning/touchscreen-2026/docs/media-assets.md).
+- Keep source masters and temporary exports out of `public/`; only checked, in-use delivery assets belong there.
+- When reviewing `public/`, watch for unused alternates and accidentally copied folders.
+- Default delivery encode for new 4K kiosk assets:
+  `scripts/encode-kiosk-video.sh input.mov output.mp4`
+- Default settings behind that script:
+  `H.264`, `3840x2160`, `yuv420p`, `CRF 18`, `preset slow`, no audio, `+faststart`, GOP matched to source fps.
+- Keep frequent keyframes because the app seeks within transition clips.
+- Replace shipped assets only when the new encode is materially smaller and still passes visual playback checks.
+- Known exception: the current jump-transition files did not shrink under the default conservative recipe, so do not assume every clip should be replaced automatically.

@@ -13,7 +13,6 @@ import { SceneStage } from "./SceneStage";
 import { TimelineNav } from "./TimelineNav";
 import {
   isCalloutPlaybackState,
-  getLocalizedText,
   getProjectedSceneId,
   getSceneIndex,
   interfaceCopy,
@@ -31,7 +30,6 @@ import { preloadSceneStills } from "../lib/stillPreload";
 import { e2eSettings, formatDataState } from "../lib/e2e";
 import {
   getAdjacentTransition,
-  SCREENSAVER_RESET_SCENE_ID,
   useKioskState,
 } from "../hooks/useKioskState";
 import { useChromePhaseTransitions } from "../hooks/useChromePhaseTransitions";
@@ -49,6 +47,7 @@ const modifierOnlyKeys = new Set([
 ]);
 const SCREENSAVER_ENTER_EASE = [0.22, 1, 0.36, 1] as const;
 const SCREENSAVER_EXIT_EASE = [0.4, 0, 1, 1] as const;
+const SCREENSAVER_VIDEO_SRC = "/Corning_Display_Screen Saver_V1.mp4";
 const LANGUAGE_CHROME_VARIANTS = createChromeVariants({ x: 56 });
 
 function isModifierOnlyKey(event: KeyboardEvent) {
@@ -63,7 +62,6 @@ export function KioskExperience() {
   const languageMenuId = useId();
 
   const currentScene = scenes[state.currentSceneId];
-  const screensaverScene = scenes[SCREENSAVER_RESET_SCENE_ID];
   const projectedSceneId = useMemo(
     () =>
       getProjectedSceneId(
@@ -547,89 +545,17 @@ export function KioskExperience() {
               dismissScreensaver();
             }}
           >
-            <motion.img
-              className="screensaver__still"
-              src={screensaverScene.holdImageSrc}
-              alt=""
+            <video
+              className="screensaver__video"
+              data-testid="screensaver-video"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="auto"
+              src={SCREENSAVER_VIDEO_SRC}
               aria-hidden="true"
-              initial={
-                prefersReducedMotion
-                  ? false
-                  : { opacity: 0, scale: 1.08 }
-              }
-              animate={{
-                opacity: 1,
-                scale: 1.04,
-                transition: prefersReducedMotion
-                  ? { duration: 0 }
-                  : {
-                      duration: 0.72,
-                      ease: SCREENSAVER_ENTER_EASE,
-                    },
-              }}
-              exit={{
-                opacity: 0.92,
-                scale: prefersReducedMotion ? 1.04 : 1.01,
-                transition: screensaverExitTransition,
-              }}
             />
-
-            <motion.div
-              className="screensaver__scrim"
-              aria-hidden="true"
-              initial={prefersReducedMotion ? false : { opacity: 0 }}
-              animate={{
-                opacity: 1,
-                transition: screensaverRootTransition,
-              }}
-              exit={{
-                opacity: 0,
-                transition: screensaverExitTransition,
-              }}
-            />
-
-            <motion.div
-              className="screensaver__content"
-              initial={
-                prefersReducedMotion
-                  ? false
-                  : { opacity: 0, y: 28 }
-              }
-              animate={{
-                opacity: 1,
-                y: 0,
-                transition: prefersReducedMotion
-                  ? { duration: 0 }
-                  : {
-                      duration: 0.52,
-                      delay: 0.12,
-                      ease: SCREENSAVER_ENTER_EASE,
-                    },
-              }}
-              exit={{
-                opacity: 0,
-                y: prefersReducedMotion ? 0 : 18,
-                transition: screensaverExitTransition,
-              }}
-            >
-              <img
-                src="/svg/logo.svg"
-                alt="Corning"
-                className="screensaver__logo"
-              />
-              <p className="screensaver__eyebrow">
-                {currentCopy.screensaverEyebrow}
-              </p>
-              <h1 className="screensaver__title">
-                {currentCopy.screensaverTitle}
-              </h1>
-              <div className="screensaver__start-year">
-                {getLocalizedText(screensaverScene.yearLabel, state.language)}
-              </div>
-              <p className="screensaver__prompt">
-                {currentCopy.screensaverPrompt}
-              </p>
-            </motion.div>
           </motion.div>
         ) : null}
       </AnimatePresence>
